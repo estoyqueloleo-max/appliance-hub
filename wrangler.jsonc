@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "appliance-hub",
+	"main": "./build/worker.mjs",
+	"compatibility_date": "2025-05-09",
+	"build": {
+		"command": "npm run build"
+	},
+	"observability": {
+		"enabled": true
+	},
+	"routes": [
+		{
+			"pattern": "web.appliance.klitosan.com/*",
+			"custom_domain": true
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "APPLIANCE_HUB_KV",
+			"id": "b46a8d441e914afc8a7fe0201328d8fc"
+		}
+	],
+	"vars": {
+		"ALLOWED_ADMIN_EMAIL": "josejuan.montiel@gmail.com",
+		"DEFAULT_DDNS_DOMAIN": "appliances.klitosan.com",
+		"CLOUDFLARE_ZONE_ID": "1cdded26dc7cd659530613c9109a60b3",
+		"CLOUDFLARE_API_TOKEN": ""
+	}
+}

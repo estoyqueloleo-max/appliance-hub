@@ -1,0 +1,14 @@
+{
+	"name": "appliance-hub",
+	"version": "1.0.0",
+	"private": true,
+	"scripts": {
+		"build": "go run github.com/syumai/workers/cmd/workers-assets-gen -mode=go && sed -i '3i // Fix for Illegal invocation\\nif (globalThis.fetch) { globalThis.fetch = globalThis.fetch.bind(globalThis); }' ./build/worker.mjs && GOOS=js GOARCH=wasm go build -o ./build/app.wasm ./...",
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev"
+	},
+	"devDependencies": {
+		"wrangler": "^4.14.4"
+	}
+}
