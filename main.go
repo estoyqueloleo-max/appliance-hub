@@ -71,9 +71,10 @@ func main() {
 			return
 		}
 
-		userEmail := req.Header.Get("Cf-Access-Authenticated-User-Email")
-		if userEmail == "" {
-			userEmail = "josejuan.montiel@gmail.com" // Preview / Local
+		authorized, userEmail := checkCloudflareAccessAuth(req)
+		if !authorized {
+			http.Error(w, fmt.Sprintf("Acceso denegado: Se requiere autenticación Cloudflare Access para '%s'", userEmail), http.StatusForbidden)
+			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -827,6 +828,8 @@ func renderDashboardHTML(userEmail string) string {
         const data = await res.json();
         if (!data.appliances || data.appliances.length === 0) {
           tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted)">No hay appliances registrados todavía.</td></tr>';
+          return;
+        }
         tbody.innerHTML = data.appliances.map(a => 
           '<tr>' +
             '<td><strong>' + a.applianceId + '</strong></td>' +
