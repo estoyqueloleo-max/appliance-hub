@@ -11,7 +11,7 @@
 	},
 	"routes": [
 		{
-			"pattern": "web.appliance.klitosan.com/*",
+			"pattern": "web.appliance.klitosan.com",
 			"custom_domain": true
 		}
 	],
