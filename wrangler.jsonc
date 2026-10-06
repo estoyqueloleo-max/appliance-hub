@@ -24,7 +24,6 @@
 	"vars": {
 		"ALLOWED_ADMIN_EMAIL": "josejuan.montiel@gmail.com",
 		"DEFAULT_DDNS_DOMAIN": "appliances.klitosan.com",
-		"CLOUDFLARE_ZONE_ID": "1cdded26dc7cd659530613c9109a60b3",
-		"CLOUDFLARE_API_TOKEN": ""
+		"CLOUDFLARE_ZONE_ID": "1cdded26dc7cd659530613c9109a60b3"
 	}
 }
