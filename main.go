@@ -173,9 +173,12 @@ func main() {
 		if defaultDomain == "" {
 			defaultDomain = "appliances.klitosan.com"
 		}
-		subdomain := payload.Subdomain
+		subdomain := strings.TrimSpace(payload.Subdomain)
 		if subdomain == "" {
 			subdomain = fmt.Sprintf("%s.%s", strings.ToLower(payload.ApplianceID), defaultDomain)
+		} else if !strings.Contains(subdomain, ".") {
+			// Si el usuario escribe solo "salon", convertirlo a "salon.appliances.klitosan.com"
+			subdomain = fmt.Sprintf("%s.%s", strings.ToLower(subdomain), defaultDomain)
 		}
 
 		tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(payload.SecretToken)))
