@@ -601,8 +601,10 @@ func main() {
 
 		now := time.Now().Unix()
 
-		// PROTECCIÓN DE CUOTAS: Si la IP no ha cambiado, 0 llamadas a Cloudflare DNS API
-		if clientIP == record.LastIP && record.DNSRecordID != "" {
+		forceUpdate := req.URL.Query().Get("force") == "true"
+
+		// PROTECCIÓN DE CUOTAS: Si la IP no ha cambiado y no se fuerza, 0 llamadas a Cloudflare DNS API
+		if !forceUpdate && clientIP == record.LastIP && record.DNSRecordID != "" {
 			if now-record.LastUpdate > 300 {
 				record.LastUpdate = now
 				data, _ := json.Marshal(record)
@@ -630,7 +632,7 @@ func main() {
 				"name":    record.Subdomain,
 				"content": clientIP,
 				"ttl":     1,
-				"proxied": true, // ECH y TLS activados
+				"proxied": false, // DNS-Only (Nube gris) para permitir terminación TLS directa Let's Encrypt
 			}
 			payloadBytes, _ := json.Marshal(dnsPayload)
 
