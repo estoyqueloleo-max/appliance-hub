@@ -684,6 +684,154 @@ func main() {
 		})
 	})
 
+	// /api/v1/ddns/acme-challenge: Gestión de retos DNS-01 de Let's Encrypt para appliances
+	mux.HandleFunc("/api/v1/ddns/acme-challenge", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost && req.Method != http.MethodDelete {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		applianceID := req.Header.Get("X-Appliance-ID")
+		authToken := req.Header.Get("Authorization")
+		if applianceID == "" {
+			applianceID = req.URL.Query().Get("id")
+		}
+		if authToken == "" {
+			authToken = req.URL.Query().Get("token")
+		} else {
+			authToken = strings.TrimPrefix(authToken, "Bearer ")
+		}
+
+		if applianceID == "" || authToken == "" {
+			http.Error(w, "Missing appliance credentials (id and token)", http.StatusUnauthorized)
+			return
+		}
+
+		pingoKV, err := kv.NewNamespace(kvNamespace)
+		if err != nil {
+			http.Error(w, "KV Error", http.StatusInternalServerError)
+			return
+		}
+
+		recordStr, err := pingoKV.GetString("appliance:"+applianceID, nil)
+		if err != nil || recordStr == "" {
+			http.Error(w, "Appliance not found or unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var record struct {
+			ApplianceID string `json:"applianceId"`
+			SecretHash  string `json:"secretHash"`
+			Subdomain   string `json:"subdomain"`
+			Status      string `json:"status"`
+		}
+		if err := json.Unmarshal([]byte(recordStr), &record); err != nil || record.Status != "active" {
+			http.Error(w, "Invalid appliance state or inactive", http.StatusForbidden)
+			return
+		}
+
+		tokenHash := fmt.Sprintf("%x", sha256.Sum256([]byte(authToken)))
+		if tokenHash != record.SecretHash {
+			http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+			return
+		}
+
+		cfAPIToken := cloudflare.Getenv("CLOUDFLARE_API_TOKEN")
+		zoneID := cloudflare.Getenv("CLOUDFLARE_ZONE_ID")
+		if cfAPIToken == "" || zoneID == "" {
+			http.Error(w, "Cloudflare credentials not configured in Hub", http.StatusInternalServerError)
+			return
+		}
+
+		txtRecordName := fmt.Sprintf("_acme-challenge.%s", record.Subdomain)
+		kvKeyACME := fmt.Sprintf("acme_txt:%s", applianceID)
+
+		if req.Method == http.MethodPost {
+			var body struct {
+				Value string `json:"value"`
+			}
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil || strings.TrimSpace(body.Value) == "" {
+				http.Error(w, "Invalid request body (value required)", http.StatusBadRequest)
+				return
+			}
+
+			// Eliminar registro anterior si existía en KV
+			if oldRecID, _ := pingoKV.GetString(kvKeyACME, nil); oldRecID != "" {
+				delURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, oldRecID)
+				cfDelReq, _ := http.NewRequest(http.MethodDelete, delURL, nil)
+				cfDelReq.Header.Set("Authorization", "Bearer "+cfAPIToken)
+				_, _ = http.DefaultClient.Do(cfDelReq)
+			}
+
+			// Crear registro TXT en Cloudflare
+			dnsPayload := map[string]any{
+				"type":    "TXT",
+				"name":    txtRecordName,
+				"content": strings.TrimSpace(body.Value),
+				"ttl":     60, // 1 minuto para propagación rápida
+			}
+			payloadBytes, _ := json.Marshal(dnsPayload)
+
+			dnsURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", zoneID)
+			cfReq, _ := http.NewRequest(http.MethodPost, dnsURL, strings.NewReader(string(payloadBytes)))
+			cfReq.Header.Set("Authorization", "Bearer "+cfAPIToken)
+			cfReq.Header.Set("Content-Type", "application/json")
+
+			cfResp, cfErr := http.DefaultClient.Do(cfReq)
+			if cfErr != nil {
+				http.Error(w, fmt.Sprintf("Cloudflare API error: %v", cfErr), http.StatusBadGateway)
+				return
+			}
+			defer cfResp.Body.Close()
+
+			var cfResult struct {
+				Success bool `json:"success"`
+				Result  struct {
+					ID string `json:"id"`
+				} `json:"result"`
+				Errors []any `json:"errors"`
+			}
+			json.NewDecoder(cfResp.Body).Decode(&cfResult)
+
+			if !cfResult.Success || cfResult.Result.ID == "" {
+				http.Error(w, "Failed to create TXT record on Cloudflare", http.StatusBadGateway)
+				return
+			}
+
+			// Guardar ID en KV para limpieza posterior
+			pingoKV.PutString(kvKeyACME, cfResult.Result.ID, nil)
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":    "created",
+				"record_id": cfResult.Result.ID,
+				"name":      txtRecordName,
+			})
+			return
+
+		} else if req.Method == http.MethodDelete {
+			// Limpiar registro TXT tras validación
+			recID, _ := pingoKV.GetString(kvKeyACME, nil)
+			if recID != "" {
+				delURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneID, recID)
+				cfDelReq, _ := http.NewRequest(http.MethodDelete, delURL, nil)
+				cfDelReq.Header.Set("Authorization", "Bearer "+cfAPIToken)
+				cfResp, cfErr := http.DefaultClient.Do(cfDelReq)
+				if cfErr == nil {
+					cfResp.Body.Close()
+				}
+				pingoKV.Delete(kvKeyACME)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status": "deleted",
+				"name":   txtRecordName,
+			})
+			return
+		}
+	})
+
 	// Middleware y CORS
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
